@@ -2,140 +2,33 @@
 <html>
 <head>
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Improved Motion Speed Demo</title>
+<title>Motion Speed Demo (Drift Control + Zero Button)</title>
 <style>
   body { font-family: sans-serif; padding: 20px; }
   pre { background: #eee; padding: 10px; white-space: pre-wrap; }
-  button { padding: 10px 20px; font-size: 16px; }
+  button { padding: 10px 20px; font-size: 16px; margin: 5px; }
+  select { font-size: 16px; padding: 5px; }
 </style>
 </head>
 <body>
 
-<h2>Motion Speed Demo (with Drift Reduction)</h2>
-<button id="btn">Enable Sensors</button>
+<h2>Motion Speed Demo (Multi-Axis + Manual Zero)</h2>
 
-<pre id="out">Press the button…</pre>
+<button id="enable">Enable Sensors</button>
+<button id="zero" disabled>ZERO / CALIBRATE</button>
+
+<br><br>
+Axis mode:
+<select id="mode">
+  <option value="vector">Full 3-axis vector</option>
+  <option value="x">X-axis only</option>
+  <option value="y">Y-axis only</option>
+  <option value="z">Z-axis only</option>
+  <option value="magnitude">Scalar speed (|v|)</option>
+</select>
+
+<pre id="out">Press "Enable Sensors"…</pre>
 
 <script>
 let lastTime = null;
-let vel = {x:0, y:0, z:0};
-
-// complementary filter for tilt
-let pitch = 0, roll = 0;
-const alpha = 0.98;
-
-// zero motion detection
-let stillCounter = 0;
-const STILL_THRESHOLD_ACC = 0.12;  // m/s²
-const STILL_THRESHOLD_GYRO = 1.5;  // deg/s
-const STILL_TIME_FRAMES = 8;       // ~160 ms at ~50 Hz
-
-function startSensors() {
-    window.addEventListener("devicemotion", event => {
-        const acc = event.accelerationIncludingGravity;
-        const rot = event.rotationRate;
-        const t = event.timeStamp;
-
-        if (!acc || !rot) return;
-
-        if (lastTime === null) {
-            lastTime = t;
-            return;
-        }
-
-        let dt = (t - lastTime) / 1000;
-        lastTime = t;
-
-        // --- Gyro (deg/s -> rad/s)
-        const pitchRate = rot.beta * Math.PI/180;
-        const rollRate  = rot.gamma * Math.PI/180;
-
-        // --- Accelerometer
-        const ax = acc.x, ay = acc.y, az = acc.z;
-
-        // --- Tilt from accel (gravity vector)
-        const pitchAcc = Math.atan2(-ax, Math.sqrt(ay*ay + az*az));
-        const rollAcc  = Math.atan2(ay, az);
-
-        // --- Complementary filter
-        pitch = alpha * (pitch + pitchRate * dt) + (1 - alpha) * pitchAcc;
-        roll  = alpha * (roll  + rollRate  * dt) + (1 - alpha) * rollAcc;
-
-        // --- Gravity estimation
-        const gX = -Math.sin(pitch) * 9.81;
-        const gY =  Math.sin(roll)  * 9.81;
-        const gZ =  Math.cos(pitch)*Math.cos(roll)*9.81;
-
-        const linAx = ax - gX;
-        const linAy = ay - gY;
-        const linAz = az - gZ;
-
-        // --- Detect if the phone is still
-        const accMag = Math.sqrt(linAx*linAx + linAy*linAy + linAz*linAz);
-        const gyroMag = Math.sqrt(rot.alpha*rot.alpha +
-                                  rot.beta*rot.beta +
-                                  rot.gamma*rot.gamma);
-
-        const isStill = (accMag < STILL_THRESHOLD_ACC && gyroMag < STILL_THRESHOLD_GYRO);
-
-        if (isStill) {
-            stillCounter++;
-            if (stillCounter > STILL_TIME_FRAMES) {
-                vel.x = vel.y = vel.z = 0; // ZUPT
-            }
-        } else {
-            stillCounter = 0;
-        }
-
-        // --- Integrate acceleration
-        vel.x += linAx * dt;
-        vel.y += linAy * dt;
-        vel.z += linAz * dt;
-
-        // --- Drift damping (high-pass behavior)
-        const damping = 0.998;  // closer to 1 = less damping
-        vel.x *= damping;
-        vel.y *= damping;
-        vel.z *= damping;
-
-        const speed = Math.sqrt(vel.x*vel.x + vel.y*vel.y + vel.z*vel.z);
-
-        document.getElementById("out").textContent = `
-Pitch: ${pitch.toFixed(3)} rad
-Roll: ${roll.toFixed(3)} rad
-
-Lin Acc (m/s²):
-  ax: ${linAx.toFixed(3)}
-  ay: ${linAy.toFixed(3)}
-  az: ${linAz.toFixed(3)}
-
-Velocity (m/s):
-  vx: ${vel.x.toFixed(3)}
-  vy: ${vel.y.toFixed(3)}
-  vz: ${vel.z.toFixed(3)}
-
-Speed (m/s): ${speed.toFixed(3)}
-
-Still detected: ${stillCounter > STILL_TIME_FRAMES ? "YES" : "NO"}
-AccMag: ${accMag.toFixed(3)}
-GyroMag: ${gyroMag.toFixed(3)}
-`;
-    });
-}
-
-document.getElementById("btn").onclick = async () => {
-    if (typeof DeviceMotionEvent.requestPermission === "function") {
-        const response = await DeviceMotionEvent.requestPermission();
-        if (response !== "granted") {
-            alert("Permission denied.");
-            return;
-        }
-    }
-
-    startSensors();
-    document.getElementById("btn").style.display = "none";
-};
-</script>
-
-</body>
-</html>
+let vel = {x:0
