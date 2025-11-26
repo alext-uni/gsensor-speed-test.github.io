@@ -1,0 +1,108 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Phone Motion Speed Demo</title>
+<style>
+  body { font-family: sans-serif; padding: 20px; }
+  pre { background: #eee; padding: 10px; }
+  button { padding: 10px 20px; font-size: 16px; }
+</style>
+</head>
+<body>
+
+<h2>Accelerometer + Gyro Speed Demo</h2>
+<button id="btn">Enable Sensors</button>
+
+<pre id="out">Press the button...</pre>
+
+<script>
+let lastTime = null;
+let vel = {x:0, y:0, z:0};
+
+// Orientation estimate (pitch/roll) using complementary filter
+let pitch = 0, roll = 0;
+const alpha = 0.98; // complementary filter constant
+
+function startSensors() {
+    window.addEventListener("devicemotion", event => {
+        const acc = event.accelerationIncludingGravity;
+        const rot = event.rotationRate;
+        const t = event.timeStamp;
+
+        if (!acc || !rot) return;
+
+        if (lastTime === null) {
+            lastTime = t;
+            return;
+        }
+
+        let dt = (t - lastTime) / 1000;
+        lastTime = t;
+
+        // --- Gyro rates (deg/s → rad/s)
+        const gx = rot.beta * Math.PI/180; // pitch rate
+        const gy = rot.gamma * Math.PI/180; // roll rate
+
+        // --- Accelerometer (with gravity)
+        const ax = acc.x;
+        const ay = acc.y;
+        const az = acc.z;
+
+        // --- Compute pitch/roll from accelerometer (gravity vector)
+        const pitchAcc = Math.atan2(-ax, Math.sqrt(ay*ay + az*az));
+        const rollAcc  = Math.atan2(ay, az);
+
+        // --- Complementary filter to combine gyro + accel
+        pitch = alpha * (pitch + gx * dt) + (1 - alpha) * pitchAcc;
+        roll  = alpha * (roll  + gy * dt) + (1 - alpha) * rollAcc;
+
+        // --- Remove gravity using pitch/roll
+        // Rotation matrix for pitch (x-axis) and roll (y-axis)
+        const gX = -Math.sin(pitch) * 9.81;
+        const gY =  Math.sin(roll)  * 9.81;
+        const gZ =  Math.cos(pitch)*Math.cos(roll)*9.81;
+
+        const linAx = ax - gX;
+        const linAy = ay - gY;
+        const linAz = az - gZ;
+
+        // --- Integrate to get velocity
+        vel.x += linAx * dt;
+        vel.y += linAy * dt;
+        vel.z += linAz * dt;
+
+        document.getElementById("out").textContent =
+            `Pitch: ${pitch.toFixed(3)} rad
+Roll: ${roll.toFixed(3)} rad
+
+Lin Acc (m/s²):
+  ax: ${linAx.toFixed(3)}
+  ay: ${linAy.toFixed(3)}
+  az: ${linAz.toFixed(3)}
+
+Velocity (m/s):
+  vx: ${vel.x.toFixed(3)}
+  vy: ${vel.y.toFixed(3)}
+  vz: ${vel.z.toFixed(3)}
+
+Speed (m/s): ${Math.sqrt(vel.x**2 + vel.y**2 + vel.z**2).toFixed(3)}`;
+    });
+}
+
+// Permission handling for iOS
+document.getElementById("btn").onclick = async () => {
+    if (typeof DeviceMotionEvent.requestPermission === "function") {
+        const response = await DeviceMotionEvent.requestPermission();
+        if (response !== "granted") {
+            alert("Permission denied.");
+            return;
+        }
+    }
+    startSensors();
+    document.getElementById("btn").style.display = "none";
+};
+</script>
+
+</body>
+</html>
