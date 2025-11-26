@@ -31,4 +31,93 @@ let magIndex = 0;
 
 let lastAccelMag = 9.81;
 
-// ZERO VELOCIT
+// ZERO VELOCITY BUTTON
+document.getElementById("zero").onclick = () => {
+    velocity = 0;
+};
+
+// CALIBRATE GRAVITY BUTTON
+document.getElementById("cal").onclick = () => {
+    if (lastAccelMag !== null) {
+        g_cal = lastAccelMag;
+    }
+};
+
+// enable secondary buttons when sensors start
+function enableButtons() {
+    document.getElementById("cal").disabled = false;
+    document.getElementById("zero").disabled = false;
+}
+
+function startSensors() {
+
+    enableButtons();
+
+    window.addEventListener("devicemotion", event => {
+        const acc = event.accelerationIncludingGravity;
+        if (!acc) return;
+
+        const t = event.timeStamp;
+        if (lastTime === null) {
+            lastTime = t;
+            return;
+        }
+        const dt = (t - lastTime) / 1000;
+        lastTime = t;
+
+        const ax = acc.x || 0;
+        const ay = acc.y || 0;
+        const az = acc.z || 0;
+
+        // RAW MAGNITUDE
+        const mag = Math.sqrt(ax*ax + ay*ay + az*az);
+
+        // --- MOVING AVERAGE NOISE FILTER ---
+        magBuffer[magIndex] = mag;
+        magIndex = (magIndex + 1) % FILTER_SIZE;
+
+        const magFiltered = magBuffer.reduce((a,b)=>a+b, 0) / FILTER_SIZE;
+
+        lastAccelMag = magFiltered;
+
+        // linear acceleration = filtered magnitude minus calibrated gravity
+        const a_lin = magFiltered - g_cal;
+
+        // integrate scalar acceleration
+        velocity += a_lin * dt;
+
+        // drift damping
+        velocity *= 0.999;
+
+        // convert to km/h
+        const velocity_kmh = velocity * 3.6;
+
+        document.getElementById("out").textContent = `
+Raw accel mag:       ${mag.toFixed(3)} m/s²
+Filtered accel mag:  ${magFiltered.toFixed(3)} m/s²
+Gravity (cal):       ${g_cal.toFixed(3)} m/s²
+
+Linear accel:        ${a_lin.toFixed(3)} m/s²
+
+Velocity (m/s):      ${velocity.toFixed(3)}
+Velocity (km/h):     ${velocity_kmh.toFixed(3)}
+`;
+    });
+}
+
+document.getElementById("enable").onclick = async () => {
+    if (typeof DeviceMotionEvent.requestPermission === "function") {
+        const resp = await DeviceMotionEvent.requestPermission();
+        if (resp !== "granted") {
+            alert("Permission denied.");
+            return;
+        }
+    }
+
+    startSensors();
+    document.getElementById("enable").style.display = "none";
+};
+</script>
+
+</body>
+</html>
