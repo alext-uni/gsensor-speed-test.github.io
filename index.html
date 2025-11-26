@@ -2,7 +2,7 @@
 <html>
 <head>
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Scalar Speed Demo (Filtered + km/h)</title>
+<title>Scalar Speed Demo (Rounded + Filtered + km/h)</title>
 <style>
   body { font-family: sans-serif; padding: 20px; }
   pre { background: #eee; padding: 10px; white-space: pre-wrap; }
@@ -11,7 +11,7 @@
 </head>
 <body>
 
-<h2>Scalar Speed Demo (Filtered + km/h)</h2>
+<h2>Scalar Speed Demo (Rounded + Filtered + km/h)</h2>
 
 <button id="enable">Enable Sensors</button>
 <button id="cal" disabled>CALIBRATE GRAVITY</button>
@@ -25,25 +25,23 @@ let velocity = 0;     // m/s
 let g_cal = 9.81;     // calibrated gravity
 
 // moving average filter buffer
-const FILTER_SIZE = 8;               // You can adjust this
+const FILTER_SIZE = 8;
 let magBuffer = Array(FILTER_SIZE).fill(9.81);
 let magIndex = 0;
 
 let lastAccelMag = 9.81;
 
-// ZERO VELOCITY BUTTON
+// ZERO VELOCITY
 document.getElementById("zero").onclick = () => {
     velocity = 0;
 };
 
-// CALIBRATE GRAVITY BUTTON
+// CALIBRATE GRAVITY
 document.getElementById("cal").onclick = () => {
-    if (lastAccelMag !== null) {
-        g_cal = lastAccelMag;
-    }
+    g_cal = lastAccelMag; // sets gravity to the filtered magnitude
 };
 
-// enable secondary buttons when sensors start
+// enable buttons after sensor begin
 function enableButtons() {
     document.getElementById("cal").disabled = false;
     document.getElementById("zero").disabled = false;
@@ -53,6 +51,7 @@ function startSensors() {
 
     enableButtons();
 
+    window.addEventListener("devicotion", event => {});
     window.addEventListener("devicemotion", event => {
         const acc = event.accelerationIncludingGravity;
         if (!acc) return;
@@ -65,19 +64,23 @@ function startSensors() {
         const dt = (t - lastTime) / 1000;
         lastTime = t;
 
-        const ax = acc.x || 0;
-        const ay = acc.y || 0;
-        const az = acc.z || 0;
+        // --- ROUND RAW VALUES TO 1 DECIMAL ---
+        const ax_raw = acc.x || 0;
+        const ay_raw = acc.y || 0;
+        const az_raw = acc.z || 0;
 
-        // RAW MAGNITUDE
+        const ax = Math.round(ax_raw * 10) / 10;
+        const ay = Math.round(ay_raw * 10) / 10;
+        const az = Math.round(az_raw * 10) / 10;
+
+        // RAW MAGNITUDE (rounded values)
         const mag = Math.sqrt(ax*ax + ay*ay + az*az);
 
-        // --- MOVING AVERAGE NOISE FILTER ---
+        // --- MOVING AVERAGE FILTER ---
         magBuffer[magIndex] = mag;
         magIndex = (magIndex + 1) % FILTER_SIZE;
 
         const magFiltered = magBuffer.reduce((a,b)=>a+b, 0) / FILTER_SIZE;
-
         lastAccelMag = magFiltered;
 
         // linear acceleration = filtered magnitude minus calibrated gravity
@@ -93,6 +96,11 @@ function startSensors() {
         const velocity_kmh = velocity * 3.6;
 
         document.getElementById("out").textContent = `
+Rounded accel:
+  ax: ${ax.toFixed(1)}
+  ay: ${ay.toFixed(1)}
+  az: ${az.toFixed(1)}
+
 Raw accel mag:       ${mag.toFixed(3)} m/s²
 Filtered accel mag:  ${magFiltered.toFixed(3)} m/s²
 Gravity (cal):       ${g_cal.toFixed(3)} m/s²
@@ -113,7 +121,6 @@ document.getElementById("enable").onclick = async () => {
             return;
         }
     }
-
     startSensors();
     document.getElementById("enable").style.display = "none";
 };
