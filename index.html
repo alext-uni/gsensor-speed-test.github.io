@@ -2,27 +2,33 @@
 <html>
 <head>
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Phone Motion Speed Demo</title>
+<title>Improved Motion Speed Demo</title>
 <style>
   body { font-family: sans-serif; padding: 20px; }
-  pre { background: #eee; padding: 10px; }
+  pre { background: #eee; padding: 10px; white-space: pre-wrap; }
   button { padding: 10px 20px; font-size: 16px; }
 </style>
 </head>
 <body>
 
-<h2>Accelerometer + Gyro Speed Demo</h2>
+<h2>Motion Speed Demo (with Drift Reduction)</h2>
 <button id="btn">Enable Sensors</button>
 
-<pre id="out">Press the button...</pre>
+<pre id="out">Press the button…</pre>
 
 <script>
 let lastTime = null;
 let vel = {x:0, y:0, z:0};
 
-// Orientation estimate (pitch/roll) using complementary filter
+// complementary filter for tilt
 let pitch = 0, roll = 0;
-const alpha = 0.98; // complementary filter constant
+const alpha = 0.98;
+
+// zero motion detection
+let stillCounter = 0;
+const STILL_THRESHOLD_ACC = 0.12;  // m/s²
+const STILL_THRESHOLD_GYRO = 1.5;  // deg/s
+const STILL_TIME_FRAMES = 8;       // ~160 ms at ~50 Hz
 
 function startSensors() {
     window.addEventListener("devicemotion", event => {
@@ -40,25 +46,22 @@ function startSensors() {
         let dt = (t - lastTime) / 1000;
         lastTime = t;
 
-        // --- Gyro rates (deg/s → rad/s)
-        const gx = rot.beta * Math.PI/180; // pitch rate
-        const gy = rot.gamma * Math.PI/180; // roll rate
+        // --- Gyro (deg/s -> rad/s)
+        const pitchRate = rot.beta * Math.PI/180;
+        const rollRate  = rot.gamma * Math.PI/180;
 
-        // --- Accelerometer (with gravity)
-        const ax = acc.x;
-        const ay = acc.y;
-        const az = acc.z;
+        // --- Accelerometer
+        const ax = acc.x, ay = acc.y, az = acc.z;
 
-        // --- Compute pitch/roll from accelerometer (gravity vector)
+        // --- Tilt from accel (gravity vector)
         const pitchAcc = Math.atan2(-ax, Math.sqrt(ay*ay + az*az));
         const rollAcc  = Math.atan2(ay, az);
 
-        // --- Complementary filter to combine gyro + accel
-        pitch = alpha * (pitch + gx * dt) + (1 - alpha) * pitchAcc;
-        roll  = alpha * (roll  + gy * dt) + (1 - alpha) * rollAcc;
+        // --- Complementary filter
+        pitch = alpha * (pitch + pitchRate * dt) + (1 - alpha) * pitchAcc;
+        roll  = alpha * (roll  + rollRate  * dt) + (1 - alpha) * rollAcc;
 
-        // --- Remove gravity using pitch/roll
-        // Rotation matrix for pitch (x-axis) and roll (y-axis)
+        // --- Gravity estimation
         const gX = -Math.sin(pitch) * 9.81;
         const gY =  Math.sin(roll)  * 9.81;
         const gZ =  Math.cos(pitch)*Math.cos(roll)*9.81;
@@ -67,13 +70,38 @@ function startSensors() {
         const linAy = ay - gY;
         const linAz = az - gZ;
 
-        // --- Integrate to get velocity
+        // --- Detect if the phone is still
+        const accMag = Math.sqrt(linAx*linAx + linAy*linAy + linAz*linAz);
+        const gyroMag = Math.sqrt(rot.alpha*rot.alpha +
+                                  rot.beta*rot.beta +
+                                  rot.gamma*rot.gamma);
+
+        const isStill = (accMag < STILL_THRESHOLD_ACC && gyroMag < STILL_THRESHOLD_GYRO);
+
+        if (isStill) {
+            stillCounter++;
+            if (stillCounter > STILL_TIME_FRAMES) {
+                vel.x = vel.y = vel.z = 0; // ZUPT
+            }
+        } else {
+            stillCounter = 0;
+        }
+
+        // --- Integrate acceleration
         vel.x += linAx * dt;
         vel.y += linAy * dt;
         vel.z += linAz * dt;
 
-        document.getElementById("out").textContent =
-            `Pitch: ${pitch.toFixed(3)} rad
+        // --- Drift damping (high-pass behavior)
+        const damping = 0.998;  // closer to 1 = less damping
+        vel.x *= damping;
+        vel.y *= damping;
+        vel.z *= damping;
+
+        const speed = Math.sqrt(vel.x*vel.x + vel.y*vel.y + vel.z*vel.z);
+
+        document.getElementById("out").textContent = `
+Pitch: ${pitch.toFixed(3)} rad
 Roll: ${roll.toFixed(3)} rad
 
 Lin Acc (m/s²):
@@ -86,11 +114,15 @@ Velocity (m/s):
   vy: ${vel.y.toFixed(3)}
   vz: ${vel.z.toFixed(3)}
 
-Speed (m/s): ${Math.sqrt(vel.x**2 + vel.y**2 + vel.z**2).toFixed(3)}`;
+Speed (m/s): ${speed.toFixed(3)}
+
+Still detected: ${stillCounter > STILL_TIME_FRAMES ? "YES" : "NO"}
+AccMag: ${accMag.toFixed(3)}
+GyroMag: ${gyroMag.toFixed(3)}
+`;
     });
 }
 
-// Permission handling for iOS
 document.getElementById("btn").onclick = async () => {
     if (typeof DeviceMotionEvent.requestPermission === "function") {
         const response = await DeviceMotionEvent.requestPermission();
@@ -99,6 +131,7 @@ document.getElementById("btn").onclick = async () => {
             return;
         }
     }
+
     startSensors();
     document.getElementById("btn").style.display = "none";
 };
