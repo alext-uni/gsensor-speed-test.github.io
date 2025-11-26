@@ -2,7 +2,7 @@
 <html>
 <head>
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Scalar Speed Demo</title>
+<title>Scalar Speed Demo (Filtered + km/h)</title>
 <style>
   body { font-family: sans-serif; padding: 20px; }
   pre { background: #eee; padding: 10px; white-space: pre-wrap; }
@@ -11,7 +11,7 @@
 </head>
 <body>
 
-<h2>Scalar Speed Demo (Calibrated Gravity)</h2>
+<h2>Scalar Speed Demo (Filtered + km/h)</h2>
 
 <button id="enable">Enable Sensors</button>
 <button id="cal" disabled>CALIBRATE GRAVITY</button>
@@ -21,88 +21,14 @@
 
 <script>
 let lastTime = null;
-let velocity = 0;
+let velocity = 0;     // m/s
+let g_cal = 9.81;     // calibrated gravity
 
-// gravity calibration value
-let g_cal = 9.81;
+// moving average filter buffer
+const FILTER_SIZE = 8;               // You can adjust this
+let magBuffer = Array(FILTER_SIZE).fill(9.81);
+let magIndex = 0;
 
-// enable zero/cal buttons only after sensors start
-function enableButtons() {
-    document.getElementById("cal").disabled = false;
-    document.getElementById("zero").disabled = false;
-}
+let lastAccelMag = 9.81;
 
-// manual zero
-document.getElementById("zero").onclick = () => {
-    velocity = 0;
-};
-
-// calibration function
-document.getElementById("cal").onclick = () => {
-    if (lastAccelMag) {
-        g_cal = lastAccelMag;
-    }
-};
-
-// track latest magnitude for calibration
-let lastAccelMag = null;
-
-function startSensors() {
-
-    enableButtons();
-
-    window.addEventListener("devicemotion", event => {
-        const acc = event.accelerationIncludingGravity;
-        if (!acc) return;
-
-        const t = event.timeStamp;
-        if (lastTime === null) {
-            lastTime = t;
-            return;
-        }
-        const dt = (t - lastTime) / 1000;
-        lastTime = t;
-
-        const ax = acc.x || 0;
-        const ay = acc.y || 0;
-        const az = acc.z || 0;
-
-        // magnitude of total acceleration
-        const mag = Math.sqrt(ax*ax + ay*ay + az*az);
-        lastAccelMag = mag;
-
-        // linear scalar acceleration
-        const a_lin = mag - g_cal;
-
-        // integrate
-        velocity += a_lin * dt;
-
-        // drift damping
-        velocity *= 0.999;
-
-        document.getElementById("out").textContent = `
-Raw accel mag: ${mag.toFixed(3)} m/s²
-Gravity (calibrated): ${g_cal.toFixed(3)} m/s²
-
-Linear accel: ${a_lin.toFixed(3)} m/s²
-
-Velocity (scalar): ${velocity.toFixed(3)} m/s
-`;
-    });
-}
-
-document.getElementById("enable").onclick = async () => {
-    if (typeof DeviceMotionEvent.requestPermission === "function") {
-        const resp = await DeviceMotionEvent.requestPermission();
-        if (resp !== "granted") {
-            alert("Permission denied.");
-            return;
-        }
-    }
-    startSensors();
-    document.getElementById("enable").style.display = "none";
-};
-</script>
-
-</body>
-</html>
+// ZERO VELOCIT
