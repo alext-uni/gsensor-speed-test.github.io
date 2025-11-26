@@ -2,163 +2,91 @@
 <html>
 <head>
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Motion Speed Demo (Drift Control + Zero Button)</title>
+<title>Scalar Speed Demo</title>
 <style>
   body { font-family: sans-serif; padding: 20px; }
   pre { background: #eee; padding: 10px; white-space: pre-wrap; }
   button { padding: 10px 20px; font-size: 16px; margin: 5px; }
-  select { font-size: 16px; padding: 5px; }
 </style>
 </head>
 <body>
 
-<h2>Motion Speed Demo (Multi-Axis + Manual Zero)</h2>
+<h2>Scalar Speed Demo (Calibrated Gravity)</h2>
 
 <button id="enable">Enable Sensors</button>
-<button id="zero" disabled>ZERO / CALIBRATE</button>
+<button id="cal" disabled>CALIBRATE GRAVITY</button>
+<button id="zero" disabled>ZERO VELOCITY</button>
 
-<br><br>
-Axis mode:
-<select id="mode">
-  <option value="vector">Full 3-axis vector</option>
-  <option value="x">X-axis only</option>
-  <option value="y">Y-axis only</option>
-  <option value="z">Z-axis only</option>
-  <option value="magnitude">Scalar speed (|v|)</option>
-</select>
-
-<pre id="out">Press "Enable Sensors"…</pre>
+<pre id="out">Press Enable…</pre>
 
 <script>
 let lastTime = null;
-let vel = {x:0, y:0, z:0};
+let velocity = 0;
 
-let pitch = 0, roll = 0;
-const alpha = 0.98;
+// gravity calibration value
+let g_cal = 9.81;
 
-// ZUPT
-let stillCounter = 0;
-const STILL_THRESHOLD_ACC = 0.12; 
-const STILL_THRESHOLD_GYRO = 1.5;
-const STILL_TIME_FRAMES = 8;
-
-// manual zero
-function zeroEverything() {
-    vel.x = vel.y = vel.z = 0;
-    stillCounter = 0;
-    // optional: reset pitch/roll (uncomment if desired)
-    // pitch = 0; roll = 0;
+// enable zero/cal buttons only after sensors start
+function enableButtons() {
+    document.getElementById("cal").disabled = false;
+    document.getElementById("zero").disabled = false;
 }
 
-document.getElementById("zero").onclick = zeroEverything;
+// manual zero
+document.getElementById("zero").onclick = () => {
+    velocity = 0;
+};
+
+// calibration function
+document.getElementById("cal").onclick = () => {
+    if (lastAccelMag) {
+        g_cal = lastAccelMag;
+    }
+};
+
+// track latest magnitude for calibration
+let lastAccelMag = null;
 
 function startSensors() {
 
-    document.getElementById("zero").disabled = false;
+    enableButtons();
 
     window.addEventListener("devicemotion", event => {
         const acc = event.accelerationIncludingGravity;
-        const rot = event.rotationRate;
+        if (!acc) return;
+
         const t = event.timeStamp;
-
-        if (!acc || !rot) return;
-
         if (lastTime === null) {
             lastTime = t;
             return;
         }
-
-        let dt = (t - lastTime) / 1000;
+        const dt = (t - lastTime) / 1000;
         lastTime = t;
 
-        // Gyro
-        const pitchRate = rot.beta * Math.PI/180;
-        const rollRate  = rot.gamma * Math.PI/180;
+        const ax = acc.x || 0;
+        const ay = acc.y || 0;
+        const az = acc.z || 0;
 
-        // Accel
-        const ax = acc.x, ay = acc.y, az = acc.z;
+        // magnitude of total acceleration
+        const mag = Math.sqrt(ax*ax + ay*ay + az*az);
+        lastAccelMag = mag;
 
-        // Tilt from accel
-        const pitchAcc = Math.atan2(-ax, Math.sqrt(ay*ay + az*az));
-        const rollAcc  = Math.atan2(ay, az);
+        // linear scalar acceleration
+        const a_lin = mag - g_cal;
 
-        // Complementary filter
-        pitch = alpha * (pitch + pitchRate * dt) + (1 - alpha) * pitchAcc;
-        roll  = alpha * (roll  + rollRate  * dt) + (1 - alpha) * rollAcc;
+        // integrate
+        velocity += a_lin * dt;
 
-        // Gravity
-        const gX = -Math.sin(pitch) * 9.81;
-        const gY =  Math.sin(roll)  * 9.81;
-        const gZ =  Math.cos(pitch)*Math.cos(roll)*9.81;
-
-        // Linear acceleration
-        const linAx = ax - gX;
-        const linAy = ay - gY;
-        const linAz = az - gZ;
-
-        // ZUPT still detection
-        const accMag = Math.sqrt(linAx*linAx + linAy*linAy + linAz*linAz);
-        const gyroMag = Math.sqrt(rot.alpha*rot.alpha +
-                                  rot.beta*rot.beta +
-                                  rot.gamma*rot.gamma);
-
-        const isStill = accMag < STILL_THRESHOLD_ACC && gyroMag < STILL_THRESHOLD_GYRO;
-
-        if (isStill) {
-            stillCounter++;
-            if (stillCounter > STILL_TIME_FRAMES) {
-                vel.x = vel.y = vel.z = 0;
-            }
-        } else {
-            stillCounter = 0;
-        }
-
-        // Integrate acceleration
-        vel.x += linAx * dt;
-        vel.y += linAy * dt;
-        vel.z += linAz * dt;
-
-        // Drift damping
-        const damping = 0.998;
-        vel.x *= damping;
-        vel.y *= damping;
-        vel.z *= damping;
-
-        // Select speed mode
-        const mode = document.getElementById("mode").value;
-        let speed;
-
-        if (mode === "vector") {
-            speed = Math.sqrt(vel.x*vel.x + vel.y*vel.y + vel.z*vel.z);
-        } else if (mode === "x") {
-            speed = vel.x;
-        } else if (mode === "y") {
-            speed = vel.y;
-        } else if (mode === "z") {
-            speed = vel.z;
-        } else {
-            speed = Math.sqrt(vel.x*vel.x + vel.y*vel.y + vel.z*vel.z);
-        }
+        // drift damping
+        velocity *= 0.999;
 
         document.getElementById("out").textContent = `
-Pitch: ${pitch.toFixed(3)} rad
-Roll:  ${roll.toFixed(3)} rad
+Raw accel mag: ${mag.toFixed(3)} m/s²
+Gravity (calibrated): ${g_cal.toFixed(3)} m/s²
 
-Linear Accel (m/s²):
-  ax: ${linAx.toFixed(3)}
-  ay: ${linAy.toFixed(3)}
-  az: ${linAz.toFixed(3)}
+Linear accel: ${a_lin.toFixed(3)} m/s²
 
-Velocity (m/s):
-  vx: ${vel.x.toFixed(3)}
-  vy: ${vel.y.toFixed(3)}
-  vz: ${vel.z.toFixed(3)}
-
-Selected speed (${mode}): ${speed.toFixed(3)} m/s
-
-Still detected: ${stillCounter > STILL_TIME_FRAMES ? "YES" : "NO"}
-AccMag: ${accMag.toFixed(3)}
-GyroMag: ${gyroMag.toFixed(3)}
+Velocity (scalar): ${velocity.toFixed(3)} m/s
 `;
     });
 }
@@ -171,7 +99,6 @@ document.getElementById("enable").onclick = async () => {
             return;
         }
     }
-
     startSensors();
     document.getElementById("enable").style.display = "none";
 };
